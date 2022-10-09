@@ -4,7 +4,7 @@ library(text2vec)
 library(plotly)
 library(zeallot)
 
-course_df <- read_csv('data/courses.csv', col_types = cols(.default = "c"))
+course_df <- read_csv('data/courses.csv') %>% mutate(course_code = str_pad(course_code, width = 6, pad = '0'))
 
 load_glove <- function(vector_dim) {
   # downloaded from https://nlp.stanford.edu/projects/glove/
@@ -120,16 +120,17 @@ rownames(m) <- df$course_code
 
 area_of_study_tsne <- Rtsne::Rtsne(m)
 
-tSNE_df <- area_of_study_tsne$Y %>% 
+tsne_df <- area_of_study_tsne$Y %>% 
   as.data.frame() %>%
   as_tibble() %>%
-  rename(tSNE1="V1",
-         tSNE2="V2") %>%
-  mutate(course_code = df$course_code) %>%
-  inner_join(course_df %>% select(course_code, uni_code, course_name, course_field), by = 'course_code')
+  rename(tSNE1="V1", tSNE2="V2") %>%
+  mutate(course_code = df$course_code) 
+
+write_csv(tsne_df, 'data/area_of_study_tsne.csv')
 
 ggplotly(
-  tSNE_df %>%
+  tsne_df %>%
+    inner_join(course_df %>% select(course_code, uni_code, course_name, course_field), by = 'course_code') %>%
     filter(!str_detect(course_name, '/')) %>% # ignore double degrees
     filter(uni_code %in% c('unsw', 'usyd', 'uts', 'mq', 'ws', 'acu')) %>%
     # filter(uni_code == 'unsw') %>%
