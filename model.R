@@ -4,11 +4,12 @@ library(text2vec)
 library(plotly)
 library(zeallot)
 
-course_df <- read_csv('courses.csv', col_types = cols(.default = "c"))
+course_df <- read_csv('data/courses.csv', col_types = cols(.default = "c"))
 
 load_glove <- function(vector_dim) {
+  # downloaded from https://nlp.stanford.edu/projects/glove/
   stopifnot(vector_dim %in% c(50, 100, 200, 300))
-  glove_dict <- read_lines(sprintf('glove.6B/glove.6B.%id.txt', vector_dim))
+  glove_dict <- read_lines(sprintf('data/glove.6B/glove.6B.%id.txt', vector_dim))
   
   mixed_m <- str_split_fixed(glove_dict, ' ', vector_dim+1)
   
@@ -106,7 +107,7 @@ enriched_course_df <- course_df %>%
   # head(10) %>%
   mutate(area_of_study_vector = embed_paragraph(area_of_study))
 
-saveRDS(enriched_course_df, 'enriched_course_df_tfidf.rds')
+saveRDS(enriched_course_df, 'data/enriched_course_df_tfidf.rds')
 
 df <- enriched_course_df %>% 
   filter(!map_lgl(area_of_study_vector, is.null)) %>%

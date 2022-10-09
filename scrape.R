@@ -102,7 +102,7 @@ parse_courses <- function() {
   
   stopifnot(nrow(course_df) == nrow(distinct(course_df, course_code)))
   
-  write_csv(course_df, 'courses.csv')
+  write_csv(course_df, 'data/courses.csv')
 }
 
 scrape_groupings <- function() {
@@ -124,6 +124,8 @@ scrape_groupings <- function() {
   
   stopifnot(nrow(groupings_df) == nrow(distinct(groupings_df, course_code)))
   
+  write_csv(groupings_df, 'data/groupings_df.csv')
+  
   groupings_df
 }
 
@@ -132,9 +134,9 @@ scrape_course_meta <- function() {
   # find this by going to chrome dev tools: observe the XHR request and responses, and then trial and error
   
   url <- 'https://www.uac.edu.au/course-search/undergraduate/ug.json'
-  download.file(url, 'ug.json')
+  download.file(url, 'data/ug.json')
   
-  tmp <- jsonlite::fromJSON('ug.json')
+  tmp <- jsonlite::fromJSON('data/ug.json')
   course_meta_df <- as_tibble(tmp$courses) %>% select(-o)
   
   course_meta_df <- course_meta_df %>%
