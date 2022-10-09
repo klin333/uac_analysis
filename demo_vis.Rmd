@@ -9,8 +9,8 @@ knitr::opts_chunk$set(echo = FALSE)
 library(tidyverse)
 library(plotly)
 
-course_df <- read_csv('data/courses.csv') %>% mutate(course_code = str_pad(course_code, width = 6, pad = '0'))
-tsne_df <- read_csv('data/area_of_study_tsne.csv') %>% mutate(course_code = str_pad(course_code, width = 6, pad = '0'))
+course_df <- read_csv('data/courses.csv', col_types = cols(course_code = 'c'))
+tsne_df <- read_csv('data/area_of_study_tsne.csv', col_types = cols(course_code = 'c'))
 ```
 
 ## Area of Study
@@ -25,6 +25,7 @@ ggplotly(
     # filter(uni_code == 'unsw') %>%
     ggplot(aes(x = tSNE1, y = tSNE2, text = course_name, color = course_field)) +
     geom_point() +
+    # scale_color_brewer(palette = 'Paired') + 
     labs(color = '') +
     theme_bw() +
     theme(

@@ -4,7 +4,6 @@ library(text2vec)
 library(plotly)
 library(zeallot)
 
-course_df <- read_csv('data/courses.csv') %>% mutate(course_code = str_pad(course_code, width = 6, pad = '0'))
 
 load_glove <- function(vector_dim) {
   # downloaded from https://nlp.stanford.edu/projects/glove/
@@ -14,22 +13,34 @@ load_glove <- function(vector_dim) {
   mixed_m <- str_split_fixed(glove_dict, ' ', vector_dim+1)
 
   tokens <- mixed_m[, 1]
-  embeddings <- mixed_m[, 2:ncol(mixed_m)]
-  class(embeddings) <- 'numeric'
+  embedding_m <- mixed_m[, 2:ncol(mixed_m)]
+  class(embedding_m) <- 'numeric'
+  rownames(embedding_m) <- tokens
 
-  embedding_list <- as.list(data.frame(t(embeddings)))
-  names(embedding_list) <- tokens
+  # create a fast hash map for faster indexing into embedding matrix
+  vocab_map <- fastmap::fastmap()
+  l <- as.list(seq.int(length(tokens)))
+  names(l) <- tokens
+  vocab_map$mset(.list = l)
 
-  embedding_list
+  list(
+    embedding_m = embedding_m,
+    vocab_map = vocab_map
+  )
 }
 
 
-
-embedding_list <- load_glove(300)
-embedding_tokens <- names(embedding_list)
-
-
 if (FALSE) {
+
+  embedding_tokens <- names(embedding_list)
+
+  c('physics', 'engineering', 'Engineering') %in% embedding_tokens
+
+  embedding_list[['king']] - embedding_list[['queen']]
+  embedding_list[['man']] - embedding_list[['woman']]
+
+  document <- course_df$area_of_study[1]
+
   # try different ways of indexing embedding
   embedding_m <- do.call(rbind, embedding_list)
   rownames(embedding_m) <- embedding_tokens
@@ -52,14 +63,6 @@ if (FALSE) {
   #                         embedding_m[tokens, ]  24.5218  25.0760  26.94321  26.46415  28.0538  31.4343    10
   # embedding_m[unlist(vocba_map$mget(tokens)), ]   0.1465   0.1891   0.22518   0.23440   0.2606   0.2724    10
 }
-
-
-c('physics', 'engineering', 'Engineering') %in% embedding_tokens
-
-embedding_list[['king']] - embedding_list[['queen']]
-embedding_list[['man']] - embedding_list[['woman']]
-
-document <- course_df$area_of_study[1]
 
 
 get_tfidf_model <- function(documents) {
@@ -95,7 +98,7 @@ get_tfidf <- function(tfidf_model, vectorizer, document) {
 }
 
 
-embed_paragraph <- function(documents) {
+embed_documents <- function(documents, embedding_m, vocab_map) {
 
   c(vectorizer, tfidf_model) %<-% get_tfidf_model(documents)
 
@@ -105,10 +108,9 @@ embed_paragraph <- function(documents) {
     tokens <- tokenizers::tokenize_words(document)[[1]]
     tokens <- unique(tokens)
     tokens <- tokens[!is.na(tokens) & tokens != '']
-    vectors_m <- embedding_m[unlist(m$mget(tokens)), , drop = FALSE]
+    vectors_m <- embedding_m[unlist(vocab_map$mget(tokens)), , drop = FALSE]
 
     found_tokens <- rownames(vectors_m)
-    found_tokens <- found_tokens[!is.na(found_tokens)]
 
     tfidf <- get_tfidf(tfidf_model, vectorizer, document)
     tfidf <- tfidf[found_tokens]
@@ -117,50 +119,58 @@ embed_paragraph <- function(documents) {
     if (nrow(vectors_m > 0)) {
       # weights <- rep(1, nrow(vectors_m)) / nrow(vectors_m)  # simple average
       weights <- tfidf / sum(tfidf)
-      paragraph_vector <- t(weights) %*% vectors_m
+      document_vector <- t(weights) %*% vectors_m
     } else {
-      paragraph_vector <- NULL
+      document_vector <- NULL
     }
 
-    paragraph_vector
+    document_vector
   })
 
 }
 
 
-enriched_course_df <- course_df %>%
-  # head(10) %>%
-  mutate(area_of_study_vector = embed_paragraph(area_of_study))
+main <- function() {
 
-saveRDS(enriched_course_df, 'data/enriched_course_df_tfidf.rds')
+  course_df <- read_csv('data/courses.csv', col_types = cols(course_code = 'c'))
 
-df <- enriched_course_df %>%
-  filter(!map_lgl(area_of_study_vector, is.null)) %>%
-  group_by(area_of_study_vector) %>%
-  filter(row_number() == 1) %>%  # to do: maybe collapse course names
-  ungroup()
+  c(embedding_m, vocab_map) %<-% load_glove(300)
 
-m <- do.call(rbind, df$area_of_study_vector)
-rownames(m) <- df$course_code
+  enriched_course_df <- course_df %>%
+    # head(10) %>%
+    mutate(area_of_study_vector = embed_documents(area_of_study, embedding_m, vocab_map))
 
-area_of_study_tsne <- Rtsne::Rtsne(m)
+  saveRDS(enriched_course_df, 'data/enriched_course_df_tfidf.rds')
 
-tsne_df <- area_of_study_tsne$Y %>%
-  as.data.frame() %>%
-  as_tibble() %>%
-  rename(tSNE1="V1", tSNE2="V2") %>%
-  mutate(course_code = df$course_code)
+  df <- enriched_course_df %>%
+    filter(!map_lgl(area_of_study_vector, is.null)) %>%
+    group_by(area_of_study_vector) %>%
+    filter(row_number() == 1) %>%  # to do: maybe collapse course names
+    ungroup()
 
-write_csv(tsne_df, 'data/area_of_study_tsne.csv')
+  m <- do.call(rbind, df$area_of_study_vector)
+  rownames(m) <- df$course_code
 
-ggplotly(
-  tsne_df %>%
-    inner_join(course_df %>% select(course_code, uni_code, course_name, course_field), by = 'course_code') %>%
-    filter(!str_detect(course_name, '/')) %>% # ignore double degrees
-    filter(uni_code %in% c('unsw', 'usyd', 'uts', 'mq', 'ws', 'acu')) %>%
-    # filter(uni_code == 'unsw') %>%
-    ggplot(aes(x = tSNE1, y = tSNE2, text = course_name, color = course_field)) +
-    geom_point() +
-    theme(legend.position="bottom")
-)
+  area_of_study_tsne <- Rtsne::Rtsne(m)
+
+  tsne_df <- area_of_study_tsne$Y %>%
+    as.data.frame() %>%
+    as_tibble() %>%
+    rename(tSNE1="V1", tSNE2="V2") %>%
+    mutate(course_code = df$course_code)
+
+  write_csv(tsne_df, 'data/area_of_study_tsne.csv')
+
+  ggplotly(
+    tsne_df %>%
+      inner_join(course_df %>% select(course_code, uni_code, course_name, course_field), by = 'course_code') %>%
+      filter(!str_detect(course_name, '/')) %>% # ignore double degrees
+      filter(uni_code %in% c('unsw', 'usyd', 'uts', 'mq', 'ws', 'acu')) %>%
+      # filter(uni_code == 'unsw') %>%
+      ggplot(aes(x = tSNE1, y = tSNE2, text = course_name, color = course_field)) +
+      geom_point() +
+      theme(legend.position="bottom")
+  )
+
+}
 
