@@ -109,6 +109,8 @@ scrape_groupings <- function() {
   
   # manual saving complete html in chrome (control S)
   
+  # to do: change this to using ug.json, see element about fosMap
+  
   files <- file.path('scrape_groupings', list.files('scrape_groupings', '*.html'))
   
   # file <- 'scrape_groupings/Architecture and Building.html'
