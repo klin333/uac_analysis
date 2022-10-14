@@ -3,6 +3,8 @@ library(tidyverse)
 library(text2vec)
 library(plotly)
 library(zeallot)
+library(reticulate)
+library(keras)
 
 
 load_glove <- function(vector_dim) {
@@ -130,6 +132,73 @@ embed_documents <- function(documents, embedding_m, vocab_map) {
 }
 
 
+train_autoencoder <- function(m) {
+
+  np <- import("numpy", convert=FALSE)
+
+  # dim(np$array(c(1,2,3)))
+
+  m_standardised <- scale(m, scale = FALSE)
+
+  # array <- r_to_py(m)
+  array <- r_to_py(m_standardised)
+
+  latent_size = 2
+  input_size = dim(m)[2]
+  print(input_size)
+
+
+  # encoder
+  enc_input = layer_input(shape = input_size)
+  enc_output = enc_input %>%
+    # layer_dense(units=10, activation = "tanh") %>%
+    # layer_dense(units=latent_size, activation = "tanh")
+    # layer_activation_leaky_relu() %>%
+    layer_dense(units=latent_size)
+    # layer_activation_leaky_relu()
+
+  encoder = keras_model(enc_input, enc_output)
+  summary(encoder)
+
+  # decoder
+  dec_input = layer_input(shape = latent_size)
+  dec_output = dec_input %>%
+    # layer_dense(units=10, activation = "tanh") %>%
+    # layer_dense(units = input_size, activation = "tanh")
+    # layer_activation_leaky_relu() %>%
+    layer_dense(units = input_size)
+    # layer_activation_leaky_relu()
+
+  decoder = keras_model(dec_input, dec_output)
+
+  summary(decoder)
+
+  # autoencoder
+  aen_input = layer_input(shape = input_size)
+  aen_output = aen_input %>%
+    encoder() %>%
+    decoder()
+
+  aen = keras_model(aen_input, aen_output)
+  summary(aen)
+
+  # fit
+  aen %>% compile(optimizer="rmsprop", loss="cosine_similarity")
+
+  aen %>% fit(array, array, epochs=200, batch_size=128)
+
+
+  # generating
+  encoded_vectors = encoder %>% predict(array)
+
+  list(
+    encoder = encoder,
+    encoded_vectors = encoded_vectors
+  )
+
+}
+
+
 main <- function() {
 
   course_df <- read_csv('data/courses.csv', col_types = cols(course_code = 'c'))
@@ -142,6 +211,8 @@ main <- function() {
 
   saveRDS(enriched_course_df, 'data/enriched_course_df_tfidf.rds')
 
+  # enriched_course_df <- readRDS('data/enriched_course_df_tfidf.rds')
+
   df <- enriched_course_df %>%
     filter(!map_lgl(area_of_study_vector, is.null)) %>%
     group_by(area_of_study_vector) %>%
@@ -153,24 +224,77 @@ main <- function() {
 
   area_of_study_tsne <- Rtsne::Rtsne(m)
 
-  tsne_df <- area_of_study_tsne$Y %>%
+  area_of_study_pca <- prcomp(m, center = T, scale = T)
+
+  plot(area_of_study_pca$sdev)
+  plot(cumsum(area_of_study_pca$sdev^2) / sum(area_of_study_pca$sdev^2))
+
+  aos_autoencoded <- get_autoencoder()$encoded_vectors
+  # aos_autoencoded <- encoded_vectors
+
+  reduced_df <- area_of_study_tsne$Y %>%
     as.data.frame() %>%
     as_tibble() %>%
     rename(tSNE1="V1", tSNE2="V2") %>%
-    mutate(course_code = df$course_code)
+    mutate(course_code = df$course_code) %>%
+    mutate(PC1 = area_of_study_pca$x[, 1], PC2 = area_of_study_pca$x[, 2], PC3 = area_of_study_pca$x[, 3]) %>%
+    mutate(auto1 = aos_autoencoded[, 1], auto2 = aos_autoencoded[, 2])
 
-  write_csv(tsne_df, 'data/area_of_study_tsne.csv')
+  # write_csv(reduced_df, 'data/area_of_study_tsne.csv')
+
+  plot_df <- reduced_df %>%
+    inner_join(course_df %>% select(course_code, uni_code, course_name, course_field), by = 'course_code') %>%
+    filter(!str_detect(course_name, '/')) %>% # ignore double degrees
+    filter(uni_code %in% c('unsw', 'usyd', 'uts', 'mq', 'ws', 'acu')) %>%
+    # filter(uni_code == 'unsw') %>%
+    select(everything())
+
+  plot_df <- plot_df %>%
+    group_by(course_field) %>%
+    summarise_at(vars(PC1, PC2, PC3, tSNE1, tSNE2, auto1, auto2), mean) %>%
+    ungroup() %>%
+    mutate(course_name = course_field)
 
   ggplotly(
-    tsne_df %>%
-      inner_join(course_df %>% select(course_code, uni_code, course_name, course_field), by = 'course_code') %>%
-      filter(!str_detect(course_name, '/')) %>% # ignore double degrees
-      filter(uni_code %in% c('unsw', 'usyd', 'uts', 'mq', 'ws', 'acu')) %>%
-      # filter(uni_code == 'unsw') %>%
+    plot_df %>%
       ggplot(aes(x = tSNE1, y = tSNE2, text = course_name, color = course_field)) +
       geom_point() +
       theme(legend.position="bottom")
   )
+
+  ggplotly(
+    plot_df %>%
+      ggplot(aes(x = PC1, y = PC2, text = course_name, color = course_field)) +
+      geom_point() +
+      theme(legend.position="bottom")
+  )
+
+  ggplotly(
+    plot_df %>%
+      ggplot(aes(x = auto1, y = auto2, text = course_name, color = course_field)) +
+      geom_point() +
+      theme(legend.position="bottom")
+  )
+
+  # plots <- list(
+  #   plot_df %>% ggplot(aes(x = PC1, y = PC2, text = course_name, color = course_field)),
+  #   plot_df %>% ggplot(aes(x = PC1, y = PC3, text = course_name, color = course_field)),
+  #   plot_df %>% ggplot(aes(x = PC2, y = PC3, text = course_name, color = course_field))
+  # ) %>%
+  #   map(function(pl) pl + geom_point() + theme(legend.position="bottom"))
+
+  plots <- list(
+    plot_ly(plot_df, x = ~PC1, y = ~PC2, color = ~course_field, legendgroup = ~course_field, text = ~course_name, colors = "Paired"),
+    plot_ly(plot_df, x = ~PC1, y = ~PC3, color = ~course_field, legendgroup = ~course_field, showlegend = F, text = ~course_name, colors = "Paired"),
+    plot_ly(plot_df, x = ~PC2, y = ~PC3, color = ~course_field, legendgroup = ~course_field, showlegend = F, text = ~course_name, colors = "Paired")
+  ) %>%
+    map(function(x) x %>% add_markers())
+
+  plotly::subplot(plots, nrows = 1, shareX = FALSE, shareY = FALSE)
+
+
+  plot_ly(plot_df, x = ~PC1, y = ~PC2, z = ~PC3, color = ~course_field, text = ~course_name, colors = "Paired") %>%
+    add_markers()
 
 }
 
