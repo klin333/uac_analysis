@@ -240,7 +240,7 @@ main <- function() {
     mutate(PC1 = area_of_study_pca$x[, 1], PC2 = area_of_study_pca$x[, 2], PC3 = area_of_study_pca$x[, 3]) %>%
     mutate(auto1 = aos_autoencoded[, 1], auto2 = aos_autoencoded[, 2])
 
-  # write_csv(reduced_df, 'data/area_of_study_tsne.csv')
+  write_csv(reduced_df, 'data/area_of_study_tsne.csv')
 
   plot_df <- reduced_df %>%
     inner_join(course_df %>% select(course_code, uni_code, course_name, course_field), by = 'course_code') %>%
