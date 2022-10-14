@@ -244,16 +244,18 @@ main <- function() {
 
   plot_df <- reduced_df %>%
     inner_join(course_df %>% select(course_code, uni_code, course_name, course_field), by = 'course_code') %>%
-    filter(!str_detect(course_name, '/')) %>% # ignore double degrees
+    # filter(!str_detect(course_name, '/')) %>% # ignore double degrees
+    filter(!str_detect(str_to_lower(course_name), '(bachelor|master|diploma).+(bachelor|master|diploma)') & !str_detect(str_to_lower(course_name), '\\bdouble\\b')) %>% # remove double degrees
+    filter(!is.na(course_field) & !(course_field %in% c('Mixed Field Programs', 'Agriculture, Environment and related Studies'))) %>%
     filter(uni_code %in% c('unsw', 'usyd', 'uts', 'mq', 'ws', 'acu')) %>%
     # filter(uni_code == 'unsw') %>%
     select(everything())
 
-  plot_df <- plot_df %>%
-    group_by(course_field) %>%
-    summarise_at(vars(PC1, PC2, PC3, tSNE1, tSNE2, auto1, auto2), mean) %>%
-    ungroup() %>%
-    mutate(course_name = course_field)
+  # plot_df <- plot_df %>%
+  #   group_by(course_field) %>%
+  #   summarise_at(vars(PC1, PC2, PC3, tSNE1, tSNE2, auto1, auto2), mean) %>%
+  #   ungroup() %>%
+  #   mutate(course_name = course_field)
 
   ggplotly(
     plot_df %>%
